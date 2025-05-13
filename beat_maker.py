@@ -3,6 +3,13 @@ from pydub.generators import Sine, WhiteNoise
 from pydub.playback import play
 from pydub.effects import normalize
 import random
+from nltk.sentiment import SentimentIntensityAnalyzer
+import nltk
+
+try:
+    nltk.data.find('vader_lexicon')
+except LookupError:
+    nltk.download('vader_lexicon')
 
 def apply_hyperpop_effects(sound):
     """Apply hyperpop-style effects with safe sample rates"""
@@ -105,25 +112,67 @@ def word_to_pattern(text, mapping):
             pattern += mapping['consonant']
     return pattern
 
-def create_beat(pattern, bpm=180):
-    """Create a hyperpop beat with randomized instruments"""
-    beat = AudioSegment.empty()
-    beat_duration = int(60000 / bpm)
+def analyze_sentiment(text):
+    """Analyze the sentiment of text and return mood parameters"""
+    sia = SentimentIntensityAnalyzer()
+    scores = sia.polarity_scores(text)
     
-    # Create instrument bank for this pattern
+    # Map sentiment to musical parameters
+    if scores['compound'] > 0.5:  # Very positive
+        return {
+            'tempo_factor': 1.3,
+            'pitch_shift': 2,
+            'distortion': 0.3,
+            'base_note': 'major'
+        }
+    elif scores['compound'] > 0:  # Slightly positive
+        return {
+            'tempo_factor': 1.1,
+            'pitch_shift': 1,
+            'distortion': 0.5,
+            'base_note': 'major'
+        }
+    elif scores['compound'] < -0.5:  # Very negative
+        return {
+            'tempo_factor': 0.8,
+            'pitch_shift': -2,
+            'distortion': 0.8,
+            'base_note': 'minor'
+        }
+    else:  # Neutral or slightly negative
+        return {
+            'tempo_factor': 1.0,
+            'pitch_shift': 0,
+            'distortion': 0.6,
+            'base_note': 'minor'
+        }
+
+def apply_mood_effects(sound, mood):
+    """Apply effects based on mood"""
+    sound = sound.apply_gain(8 * mood['distortion'])
+    new_rate = int(sound.frame_rate * (2.0 ** (mood['pitch_shift'] / 12.0)))
+    new_rate = max(8000, min(48000, new_rate))
+    sound = sound._spawn(sound.raw_data, overrides={"frame_rate": new_rate})
+    return sound
+
+def create_beat(pattern, text, bpm=180):
+    """Create a mood-based beat"""
+    mood = analyze_sentiment(text)
+    beat = AudioSegment.empty()
+    beat_duration = int(60000 / (bpm * mood['tempo_factor']))
+    
     instrument_bank = {
-        'k': generate_random_instrument,
-        's': generate_random_instrument,
-        'h': generate_random_instrument,
-        'l': generate_random_instrument,
-        'x': generate_random_instrument
+        'k': generate_kick,
+        's': generate_snare,
+        'h': generate_hihat,
+        'l': generate_lead,
+        'x': generate_sharp_synth
     }
     
     for char in pattern.lower():
         if char in instrument_bank:
             sound = instrument_bank[char]()
-            # Random pitch and volume variations
-            sound = sound.apply_gain(random.randint(-5, 5))
+            sound = apply_mood_effects(sound, mood)
             beat += sound
             silence = AudioSegment.silent(duration=max(0, beat_duration - len(sound)))
             beat += silence
@@ -132,11 +181,11 @@ def create_beat(pattern, bpm=180):
 
 def main():
     try:
-        text = input("Enter text for hyperpop beat: ")
-        bpm = int(input("Enter BPM (120-300): "))
+        text = input("Enter text for mood-based beat: ")
+        bpm = int(input("Enter base BPM (120-300): "))
         mapping = create_random_mapping()
         pattern = word_to_pattern(text, mapping)
-        beat = create_beat(pattern, bpm)
+        beat = create_beat(pattern, text, bpm)
         play(beat)
     except Exception as e:
         print(f"Error: {e}")
