@@ -1,100 +1,141 @@
 from pydub import AudioSegment
 from pydub.generators import Sine, WhiteNoise
 from pydub.playback import play
-import time
+from pydub.effects import normalize
 import random
-import os
+
+def apply_hyperpop_effects(sound):
+    """Apply hyperpop-style effects with safe sample rates"""
+    sound = sound.apply_gain(8)
+    sound = normalize(sound)
+    # Use safer octave shifts
+    octave_shift = random.choice([-1, 0, 1])
+    new_rate = int(sound.frame_rate * (2.0 ** octave_shift))
+    # Ensure sample rate stays within supported range (8000-48000 Hz)
+    new_rate = max(8000, min(48000, new_rate))
+    sound = sound._spawn(sound.raw_data, overrides={
+        "frame_rate": new_rate
+    })
+    return sound
 
 def generate_kick():
-    """Generate a kick drum sound"""
-    duration = 100
-    kick = Sine(60).to_audio_segment(duration=duration)
-    return kick.fade_out(50) - 12
+    """Generate a hyperpop kick drum"""
+    duration = 80
+    kick = Sine(80, sample_rate=44100).to_audio_segment(duration=duration)
+    kick = kick.apply_gain(10)
+    return apply_hyperpop_effects(kick.fade_out(40))
 
 def generate_snare():
-    """Generate a snare drum sound"""
-    duration = 80
-    snare = Sine(200).to_audio_segment(duration=duration)
-    return snare.fade_out(40) - 12
+    """Generate a hyperpop snare"""
+    duration = 60
+    snare = WhiteNoise(sample_rate=44100).to_audio_segment(duration=duration)
+    snare = snare.overlay(Sine(400, sample_rate=44100).to_audio_segment(duration=duration))
+    return apply_hyperpop_effects(snare.fade_out(30))
 
 def generate_hihat():
-    """Generate a hihat sound"""
-    duration = 50
-    hihat = Sine(1000).to_audio_segment(duration=duration)
-    return hihat.fade_out(30) - 20
+    """Generate a hyperpop hihat"""
+    duration = 30
+    hihat = WhiteNoise(sample_rate=44100).to_audio_segment(duration=duration)
+    hihat = hihat.high_pass_filter(2000)
+    return apply_hyperpop_effects(hihat.fade_out(20))
 
-def generate_cymbal():
-    """Generate a cymbal sound"""
-    duration = 150
-    cymbal = Sine(1500).to_audio_segment(duration=duration)
-    return cymbal.fade_out(100) - 25
-
-def generate_tom():
-    """Generate a tom drum sound"""
+def generate_lead():
+    """Generate a hyperpop lead synth"""
     duration = 100
-    tom = Sine(150).to_audio_segment(duration=duration)
-    return tom.fade_out(60) - 15
+    freq = random.choice([400, 600, 800, 1000])
+    lead = Sine(freq, sample_rate=44100).to_audio_segment(duration=duration)
+    return apply_hyperpop_effects(lead.fade_out(50))
 
-def generate_clap():
-    """Generate a clap sound"""
-    duration = 60
-    clap = WhiteNoise().to_audio_segment(duration=duration)
-    return clap.fade_out(30) - 25
+def generate_sharp_synth():
+    """Generate a sharp, piercing synth sound"""
+    duration = 40  # Short duration for sharpness
+    # High frequency for piercing sound
+    freq = random.choice([2000, 3000, 4000])
+    sharp = Sine(freq).to_audio_segment(duration=duration)
+    
+    # Add distortion
+    sharp = sharp.apply_gain(15)
+    
+    # Rapid pitch modulation
+    mod_freq = random.uniform(10, 20)
+    sharp = sharp._spawn(sharp.raw_data, overrides={
+        "frame_rate": int(sharp.frame_rate * mod_freq)
+    })
+    
+    return apply_hyperpop_effects(sharp.fade_out(20))
 
-def word_to_pattern(text):
-    """Convert text to an extended drum pattern"""
+def generate_random_instrument():
+    """Generate a random instrument configuration"""
+    instruments = [
+        (generate_kick, "bass"),
+        (generate_snare, "mid"),
+        (generate_hihat, "high"),
+        (generate_lead, "melody"),
+        (generate_sharp_synth, "sharp")
+    ]
+    return random.choice(instruments)[0]()
+
+def create_random_mapping():
+    """Create random mapping for characters to instruments"""
+    instruments = ['k', 's', 'h', 'l', 'x']
+    random.shuffle(instruments)
+    return {
+        'space': instruments[0],
+        'vowel': instruments[1],
+        'consonant': instruments[2],
+        'uppercase': instruments[3],
+        'punctuation': instruments[4]
+    }
+
+def word_to_pattern(text, mapping):
+    """Convert text to pattern using provided mapping"""
     pattern = ""
     vowels = set('aeiouAEIOU')
-    consonants = set('bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ')
     
     for char in text:
         if char.isspace():
-            pattern += 'h'  # Hihat for spaces
+            pattern += mapping['space'] * random.randint(1, 2)
+        elif char.isupper():
+            pattern += mapping['uppercase']
+        elif char.lower() in vowels:
+            pattern += mapping['vowel'] * random.randint(1, 2)
         elif char in '.,!?':
-            pattern += 'c'  # Cymbal for punctuation
-        elif char in vowels:
-            pattern += 's' if random.random() > 0.5 else 'p'  # Snare or Clap for vowels
-        elif char in consonants:
-            pattern += 'k' if random.random() > 0.5 else 't'  # Kick or Tom for consonants
-    
+            pattern += mapping['punctuation']
+        else:
+            pattern += mapping['consonant']
     return pattern
 
-def create_beat(pattern, bpm=120):
-    """Create a beat with extended instrument set"""
+def create_beat(pattern, bpm=180):
+    """Create a hyperpop beat with randomized instruments"""
     beat = AudioSegment.empty()
     beat_duration = int(60000 / bpm)
     
+    # Create instrument bank for this pattern
+    instrument_bank = {
+        'k': generate_random_instrument,
+        's': generate_random_instrument,
+        'h': generate_random_instrument,
+        'l': generate_random_instrument,
+        'x': generate_random_instrument
+    }
+    
     for char in pattern.lower():
-        if char == 'k':
-            sound = generate_kick()
-        elif char == 's':
-            sound = generate_snare()
-        elif char == 'h':
-            sound = generate_hihat()
-        elif char == 'c':
-            sound = generate_cymbal()
-        elif char == 't':
-            sound = generate_tom()
-        elif char == 'p':
-            sound = generate_clap()
-        else:
-            continue
-            
-        beat += sound
-        silence = AudioSegment.silent(duration=beat_duration - len(sound))
-        beat += silence
+        if char in instrument_bank:
+            sound = instrument_bank[char]()
+            # Random pitch and volume variations
+            sound = sound.apply_gain(random.randint(-5, 5))
+            beat += sound
+            silence = AudioSegment.silent(duration=max(0, beat_duration - len(sound)))
+            beat += silence
     
     return beat
 
 def main():
     try:
-        text = input("Enter a sentence to create a beat: ")
-        bpm = int(input("Enter BPM (60-180): "))
-        if not 60 <= bpm <= 180:
-            raise ValueError("BPM must be between 60 and 180")
-            
-        pattern = word_to_pattern(text)
-        print(f"Generated pattern: {pattern}")
+        text = input("Enter text for hyperpop beat: ")
+        bpm = int(input("Enter BPM (120-300): "))
+        mapping = create_random_mapping()
+        pattern = word_to_pattern(text, mapping)
         beat = create_beat(pattern, bpm)
         play(beat)
     except Exception as e:
